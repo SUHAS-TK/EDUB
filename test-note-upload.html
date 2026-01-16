@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Note Upload</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .debug {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .error {
+            color: #d32f2f;
+        }
+
+        .success {
+            color: #388e3c;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🧪 Test Note Upload Debugging</h1>
+
+        <h3>Step 1: Check Connection</h3>
+        <button onclick="testConnection()">Test Supabase Connection</button>
+
+        <h3>Step 2: Test Insert with Minimal Data</h3>
+        <button onclick="testMinimalInsert()">Test Minimal Insert</button>
+
+        <h3>Step 3: Test Insert with Subject</h3>
+        <input type="text" id="testTitle" placeholder="Note Title" value="Test Note">
+        <select id="testSubject">
+            <option value="">-- No Subject --</option>
+            <option value="Mathematics">Mathematics</option>
+            <option value="Physics">Physics</option>
+            <option value="Chemistry">Chemistry</option>
+            <option value="Computer Science">Computer Science</option>
+            <option value="Other">Other</option>
+        </select>
+        <select id="testSection">
+            <option value="">-- No Section --</option>
+            <option value="A">Section A</option>
+            <option value="B">Section B</option>
+            <option value="C">Section C</option>
+        </select>
+        <button onclick="testFullInsert()">Test Full Insert</button>
+
+        <h3>Debug Output:</h3>
+        <div id="output" class="debug">Ready to test...</div>
+    </div>
+
+    <script src="supabase-config.js"></script>
+    <script>
+        const output = document.getElementById('output');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            output.innerHTML += `\n[${timestamp}] ${message}`;
+            if (className) {
+                output.innerHTML = output.innerHTML.replace(message, `<span class="${className}">${message}</span>`);
+            }
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function testConnection() {
+            output.innerHTML = 'Testing connection...\n';
+
+            try {
+                if (!supabaseClient) {
+                    log('❌ Supabase client not initialized!', 'error');
+                    log('Check supabase-config.js file');
+                    return;
+                }
+
+                const { data: { user }, error } = await supabaseClient.auth.getUser();
+
+                if (error) {
+                    log(`❌ Auth error: ${error.message}`, 'error');
+                } else if (!user) {
+                    log('⚠️ No user logged in', 'error');
+                    log('Please login first in the main app');
+                } else {
+                    log(`✅ Connected as: ${user.email}`, 'success');
+                    log(`User ID: ${user.id}`);
+                }
+            } catch (err) {
+                log(`❌ Error: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+
+        async function testMinimalInsert() {
+            log('\n--- Testing Minimal Insert ---');
+
+            try {
+                const { data: { user } } = await supabaseClient.auth.getUser();
+
+                if (!user) {
+                    log('❌ Please login first!', 'error');
+                    return;
+                }
+
+                const testNote = {
+                    title: 'Test Note',
+                    file_url: 'test.pdf',
+                    file_name: 'test.pdf',
+                    uploaded_by: user.id
+                };
+
+                log(`Attempting insert with data:`);
+                log(JSON.stringify(testNote, null, 2));
+
+                const { data, error } = await supabaseClient
+                    .from('notes')
+                    .insert([testNote])
+                    .select();
+
+                if (error) {
+                    log(`❌ Insert failed: ${error.message}`, 'error');
+                    log(`Error details: ${JSON.stringify(error, null, 2)}`);
+                    log('\n🔍 DIAGNOSIS:');
+                    if (error.message.includes('subject')) {
+                        log('The subject field is REQUIRED but missing!');
+                        log('Run EMERGENCY-FIX-SUBJECT.sql to fix this');
+                    }
+                    if (error.message.includes('section')) {
+                        log('The section field is REQUIRED but missing!');
+                        log('Run EMERGENCY-FIX-SUBJECT.sql to fix this');
+                    }
+                } else {
+                    log(`✅ Insert successful!`, 'success');
+                    log(`Inserted note ID: ${data[0].id}`);
+
+                    // Clean up
+                    await supabaseClient.from('notes').delete().eq('id', data[0].id);
+                    log('✅ Test note deleted');
+                }
+            } catch (err) {
+                log(`❌ Exception: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+
+        async function testFullInsert() {
+            log('\n--- Testing Full Insert ---');
+
+            try {
+                const { data: { user } } = await supabaseClient.auth.getUser();
+
+                if (!user) {
+                    log('❌ Please login first!', 'error');
+                    return;
+                }
+
+                const title = document.getElementById('testTitle').value;
+                const subject = document.getElementById('testSubject').value;
+                const section = document.getElementById('testSection').value;
+
+                const testNote = {
+                    title: title || 'Test Note',
+                    file_url: 'test.pdf',
+                    file_name: 'test.pdf',
+                    uploaded_by: user.id,
+                    subject: subject || 'Other',  // Provide default
+                    section: section || 'A'       // Provide default
+                };
+
+                log(`Attempting insert with data:`);
+                log(JSON.stringify(testNote, null, 2));
+
+                const { data, error } = await supabaseClient
+                    .from('notes')
+                    .insert([testNote])
+                    .select();
+
+                if (error) {
+                    log(`❌ Insert failed: ${error.message}`, 'error');
+                    log(`Error code: ${error.code}`);
+                    log(`Error details: ${JSON.stringify(error, null, 2)}`);
+                } else {
+                    log(`✅ Insert successful!`, 'success');
+                    log(`Inserted note: ${JSON.stringify(data[0], null, 2)}`);
+
+                    // Clean up
+                    await supabaseClient.from('notes').delete().eq('id', data[0].id);
+                    log('✅ Test note deleted');
+                }
+            } catch (err) {
+                log(`❌ Exception: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+
+        // Auto-test connection on load
+        window.addEventListener('load', () => {
+            setTimeout(testConnection, 500);
+        });
+    </script>
+</body>
+
+</html>

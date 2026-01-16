@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDUBRIDGE - Database Connection Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: white;
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #a0aec0;
+            margin-bottom: 3rem;
+        }
+
+        .test-box {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .test-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .test-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .status {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status.pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .status.success {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+        }
+
+        .status.error {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+
+        .test-content {
+            color: #cbd5e0;
+            line-height: 1.6;
+        }
+
+        .code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+            color: #81e6d9;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 1rem;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .log-box {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0;
+        }
+
+        .log-success {
+            color: #4caf50;
+        }
+
+        .log-error {
+            color: #f44336;
+        }
+
+        .log-warning {
+            color: #ffc107;
+        }
+
+        .log-info {
+            color: #2196f3;
+        }
+
+        .next-steps {
+            background: rgba(102, 126, 234, 0.1);
+            border-left: 4px solid #667eea;
+            padding: 1.5rem;
+            margin-top: 2rem;
+            border-radius: 8px;
+        }
+
+        .next-steps h3 {
+            margin-bottom: 1rem;
+        }
+
+        .next-steps ol {
+            margin-left: 1.5rem;
+        }
+
+        .next-steps li {
+            margin-bottom: 0.75rem;
+            line-height: 1.6;
+        }
+
+        .link {
+            color: #81e6d9;
+            text-decoration: none;
+            border-bottom: 1px solid #81e6d9;
+        }
+
+        .link:hover {
+            color: #4fd1c5;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 EDUBRIDGE Database Test</h1>
+        <p class="subtitle">Checking Supabase connection & setup</p>
+
+        <!-- Test 1: Supabase SDK -->
+        <div class="test-box">
+            <div class="test-header">
+                <div class="test-title">1. Supabase SDK Loaded</div>
+                <div class="status pending" id="status-sdk">⏳ Checking...</div>
+            </div>
+            <div class="test-content" id="content-sdk">
+                Verifying that the Supabase JavaScript library is loaded...
+            </div>
+        </div>
+
+        <!-- Test 2: Configuration -->
+        <div class="test-box">
+            <div class="test-header">
+                <div class="test-title">2. Configuration Valid</div>
+                <div class="status pending" id="status-config">⏳ Checking...</div>
+            </div>
+            <div class="test-content" id="content-config">
+                Checking if Supabase URL and API key are configured...
+            </div>
+        </div>
+
+        <!-- Test 3: Connection -->
+        <div class="test-box">
+            <div class="test-header">
+                <div class="test-title">3. Database Connection</div>
+                <div class="status pending" id="status-connection">⏳ Checking...</div>
+            </div>
+            <div class="test-content" id="content-connection">
+                Testing connection to Supabase...
+            </div>
+        </div>
+
+        <!-- Test 4: Tables -->
+        <div class="test-box">
+            <div class="test-header">
+                <div class="test-title">4. Database Tables</div>
+                <div class="status pending" id="status-tables">⏳ Checking...</div>
+            </div>
+            <div class="test-content" id="content-tables">
+                Verifying that required tables exist...
+            </div>
+        </div>
+
+        <!-- Console Log -->
+        <div class="test-box">
+            <div class="test-title">📋 Console Log</div>
+            <div class="log-box" id="log-box">
+                <div class="log-entry log-info">Test starting...</div>
+            </div>
+        </div>
+
+        <!-- Run Test Button -->
+        <button class="btn" id="run-test-btn" onclick="runTests()">🚀 Run All Tests</button>
+
+        <!-- Next Steps -->
+        <div class="next-steps" id="next-steps" style="display: none;">
+            <h3>📝 Next Steps</h3>
+            <ol id="steps-list"></ol>
+        </div>
+    </div>
+
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+
+    <script>
+        const logs = [];
+
+        function addLog(type, message) {
+            const logBox = document.getElementById('log-box');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+
+            const icon = {
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️',
+                'info': 'ℹ️'
+            }[type] || '';
+
+            entry.textContent = `${icon} ${message}`;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function updateStatus(test, status, content) {
+            const statusEl = document.getElementById(`status-${test}`);
+            const contentEl = document.getElementById(`content-${test}`);
+
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = status === 'success' ? '✅ Passed' :
+                status === 'error' ? '❌ Failed' :
+                    '⏳ Checking...';
+
+            if (content) contentEl.innerHTML = content;
+        }
+
+        async function runTests() {
+            document.getElementById('run-test-btn').disabled = true;
+            document.getElementById('log-box').innerHTML = '';
+            addLog('info', 'Starting diagnostic tests...');
+
+            const results = {
+                sdk: false,
+                config: false,
+                connection: false,
+                tables: false
+            };
+
+            // Test 1: SDK
+            addLog('info', 'Test 1: Checking Supabase SDK...');
+            if (typeof supabase !== 'undefined') {
+                results.sdk = true;
+                updateStatus('sdk', 'success', 'Supabase JavaScript SDK is loaded correctly.');
+                addLog('success', 'Supabase SDK loaded');
+            } else {
+                updateStatus('sdk', 'error', 'Supabase SDK not found. Check internet connection.');
+                addLog('error', 'Supabase SDK not loaded');
+            }
+
+            // Test 2: Configuration
+            addLog('info', 'Test 2: Checking configuration...');
+            if (typeof SUPABASE_CONFIG !== 'undefined' && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
+                results.config = true;
+                updateStatus('config', 'success',
+                    `URL: <span class="code">${SUPABASE_CONFIG.url}</span><br>
+                     API Key: <span class="code">${SUPABASE_CONFIG.anonKey.substring(0, 20)}...</span>`);
+                addLog('success', 'Configuration found');
+                addLog('info', `Project: ${SUPABASE_CONFIG.url.split('//')[1].split('.')[0]}`);
+            } else {
+                updateStatus('config', 'error', 'Configuration missing. Check supabase-config.js');
+                addLog('error', 'Configuration invalid');
+            }
+
+            // Test 3: Connection
+            if (results.sdk && results.config) {
+                addLog('info', 'Test 3: Testing connection...');
+                try {
+                    const client = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
+                    // Try to query
+                    const { data, error } = await client.from('users').select('count').limit(1);
+
+                    if (error) {
+                        if (error.message.includes('relation') && error.message.includes('does not exist')) {
+                            results.connection = true;
+                            updateStatus('connection', 'warning',
+                                '⚠️ Connected, but tables not found. Need to run SQL script.');
+                            addLog('warning', 'Connected but tables missing');
+                        } else if (error.message.includes('permission denied') || error.message.includes('row-level security')) {
+                            results.connection = true;
+                            updateStatus('connection', 'warning',
+                                '⚠️ Connected, but RLS policies may need configuration.');
+                            addLog('warning', 'Connected but RLS issue: ' + error.message);
+                        } else {
+                            updateStatus('connection', 'error', `Connection error: ${error.message}`);
+                            addLog('error', 'Connection failed: ' + error.message);
+                        }
+                    } else {
+                        results.connection = true;
+                        results.tables = true;
+                        updateStatus('connection', 'success', 'Successfully connected to Supabase!');
+                        updateStatus('tables', 'success', 'Tables exist and are accessible!');
+                        addLog('success', 'Database connection successful');
+                        addLog('success', 'Tables verified');
+                    }
+                } catch (err) {
+                    updateStatus('connection', 'error', `Error: ${err.message}`);
+                    addLog('error', 'Connection test failed: ' + err.message);
+                }
+            } else {
+                updateStatus('connection', 'error', 'Cannot test - SDK or config missing');
+                updateStatus('tables', 'error', 'Cannot test - connection failed');
+            }
+
+            // Show next steps
+            showNextSteps(results);
+            document.getElementById('run-test-btn').disabled = false;
+            addLog('info', 'Diagnostic complete!');
+        }
+
+        function showNextSteps(results) {
+            const nextSteps = document.getElementById('next-steps');
+            const stepsList = document.getElementById('steps-list');
+            stepsList.innerHTML = '';
+
+            const steps = [];
+
+            if (!results.sdk) {
+                steps.push('Check your internet connection and reload the page.');
+            }
+
+            if (!results.config) {
+                steps.push('Open <span class="code">supabase-config.js</span> and ensure URL and API key are set.');
+            }
+
+            if (results.config && !results.connection) {
+                steps.push('Verify your Supabase project is active at <a class="link" href="https://supabase.com/dashboard" target="_blank">Supabase Dashboard</a>');
+            }
+
+            if (results.connection && !results.tables) {
+                steps.push('Open <span class="code">supabase-section-subject-schema.sql</span> and copy all contents.');
+                steps.push('Go to <a class="link" href="https://supabase.com/dashboard/project/vawblwlvnwwajmdxhryz/sql" target="_blank">Supabase SQL Editor</a>');
+                steps.push('Paste the SQL and click <strong>RUN</strong> to create all tables and policies.');
+                steps.push('Create a storage bucket named <span class="code">notes-files</span> in <a class="link" href="https://supabase.com/dashboard/project/vawblwlvnwwajmdxhryz/storage/buckets" target="_blank">Storage</a>');
+            }
+
+            if (results.tables) {
+                steps.push('✅ Everything looks good! You can now use the main app.');
+                steps.push('Open <span class="code">index.html</span> to start using EDUBRIDGE.');
+            }
+
+            if (steps.length > 0) {
+                steps.forEach(step => {
+                    const li = document.createElement('li');
+                    li.innerHTML = step;
+                    stepsList.appendChild(li);
+                });
+                nextSteps.style.display = 'block';
+            }
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 500);
+        });
+    </script>
+</body>
+
+</html>
