@@ -85,14 +85,36 @@ body {
     align-items: center;
     justify-content: center;
     z-index: 9999;
-    animation: fadeOut 0.5s ease-in-out 3.5s forwards;
+    z-index: 9999;
+    /* animation: fadeOut 0.5s ease-in-out 3.5s forwards; REMOVED for manual start */
+    transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
 }
 
-@keyframes fadeOut {
-    to {
-        opacity: 0;
-        visibility: hidden;
-    }
+.startup-screen.hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.startup-btn {
+    margin-top: 2rem;
+    width: auto;
+    padding: 1rem 3rem;
+    font-size: 1.2rem;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease-out;
+    background: var(--gradient-accent);
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+}
+
+.startup-btn:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(236, 72, 153, 0.6);
+}
+
+.startup-btn.show {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .animation-container {
@@ -1333,4 +1355,53 @@ body {
         transform: translateY(-8px);
         opacity: 1;
     }
+}
+
+/* ==========================================
+   USER REQUESTED STYLES
+   ========================================== */
+
+/* Force white text for Login Roles */
+.role-btn h3 {
+    color: #ffffff !important;
+}
+
+.role-btn p {
+    color: #e0e0e0 !important;
+}
+
+/* Force white text for Messages */
+.message-content {
+    color: #ffffff !important;
+}
+
+.message-sender {
+    color: #ffffff !important;
+    font-weight: bold;
+}
+
+.message-time {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* AI Google Search Button */
+.btn-google {
+    background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+    color: white;
+    margin-top: 1rem;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border-radius: var(--border-radius-md);
+    text-decoration: none;
+    font-weight: 600;
+    transition: transform 0.2s;
+}
+
+.btn-google:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
 }

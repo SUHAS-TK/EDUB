@@ -12,6 +12,9 @@ class EdubridgeApp {
         this.messages = this.loadFromStorage('edubridge_messages') || [];
         this.activeAttendanceCode = null;
         this.currentChannel = 'students'; // Default to students channel
+        this.selectedRecipient = null; // For private messaging
+        this.messageMode = 'private'; // Default to PRIVATE mode
+        this.availableUsers = []; // List of users for private messaging
 
         this.init();
     }
@@ -42,11 +45,29 @@ class EdubridgeApp {
             initializeSupabase();
         }
 
-        // Hide startup animation after 4 seconds
+        // Show "Get Started" button after animation
         setTimeout(() => {
-            document.getElementById('startup-animation').style.display = 'none';
-            document.getElementById('login-screen').classList.remove('hidden');
-        }, 4000);
+            const btn = document.getElementById('get-started-btn');
+            if (btn) {
+                // Show the button
+                btn.classList.add('show');
+                btn.classList.remove('hidden-btn');
+
+                // Handle click
+                btn.onclick = () => {
+                    const startupScreen = document.getElementById('startup-animation');
+
+                    // Add hidden class to trigger CSS transition
+                    startupScreen.classList.add('hidden');
+
+                    // Allow transition to finish before hiding display
+                    setTimeout(() => {
+                        startupScreen.style.display = 'none';
+                        document.getElementById('login-screen').classList.remove('hidden');
+                    }, 500);
+                };
+            }
+        }, 3500);
 
         this.setupEventListeners();
     }
@@ -446,9 +467,19 @@ class EdubridgeApp {
     async openFeature(feature) {
         const modalsContainer = document.getElementById('modals-container');
 
-        // 🔥 Load notes from Supabase BEFORE showing notes modal
+        // 🔥 Load data from Supabase BEFORE showing modals
         if (feature === 'notes' && supabaseClient) {
             await this.loadNotesFromSupabase();
+        }
+
+        if (feature === 'communication' && supabaseClient) {
+            // ✅ RESET to PRIVATE mode when opening communication (default)
+            this.messageMode = 'private';
+            this.selectedRecipient = null;
+
+            await this.loadMessagesFromSupabase();
+            await this.loadAvailableUsers();
+            await this.subscribeToMessages();
         }
 
         switch (feature) {
@@ -748,9 +779,28 @@ class EdubridgeApp {
                     ` : `
                     <!-- Section Info for Students -->
                     <div style="padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-md); margin-bottom: 1rem; text-align: center;">
-                        <strong>📚 Section ${this.currentUser.section || 'A'} - Student-Teacher Chat</strong>
+                        <strong>📚 Section ${this.currentUser.section || 'A'} - Teacher-Student Chat</strong>
                     </div>
                     `}
+                    
+                    <!-- Message Mode Selector -->
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <button class="btn" onclick="app.switchMessageMode('public')" id="public-mode-btn" style="flex: 1; background: ${this.messageMode === 'public' ? 'var(--gradient-primary)' : 'var(--bg-secondary)'};">
+                            📢 Public Messages
+                        </button>
+                        <button class="btn" onclick="app.switchMessageMode('private')" id="private-mode-btn" style="flex: 1; background: ${this.messageMode === 'private' ? 'var(--gradient-primary)' : 'var(--bg-secondary)'};">
+                            🔒 Private Messages
+                        </button>
+                    </div>
+                    
+                    <!-- Recipient Selector (Private Mode Only) -->
+                    <div id="recipient-selector" style="display: ${this.messageMode === 'private' ? 'block' : 'none'}; margin-bottom: 1rem;">
+                        <label for="recipient-select" style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Send private message to:</label>
+                        <select id="recipient-select" style="width: 100%; padding: 0.75rem; background: var(--bg-secondary); border: 2px solid rgba(255,255,255,0.1); border-radius: var(--border-radius-sm); color: var(--text-primary); font-family: var(--font-primary);">
+                            <option value="">-- Select a ${isTeacher ? 'student' : 'teacher'} --</option>
+                            ${this.renderRecipientOptions()}
+                        </select>
+                    </div>
                     
                     <div style="background: var(--bg-tertiary); border-radius: var(--border-radius-lg); height: 400px; display: flex; flex-direction: column;">
                         <div id="messages-container" style="flex: 1; overflow-y: auto; padding: 1.5rem;">
@@ -772,36 +822,141 @@ class EdubridgeApp {
     }
 
     renderMessages() {
-        // Filter messages based on current channel and section
         const currentChannel = this.currentChannel || 'students';
         const userSection = this.currentUser.section || 'A';
+        const userId = this.currentUser.id;
+        const isTeacher = this.currentUser.role === 'teacher';
 
-        let filteredMessages = this.messages.filter(msg => {
-            // Teacher-to-teacher channel
-            if (currentChannel === 'teachers') {
-                return msg.channel === 'teachers';
-            }
-
-            // Student-teacher channel (section-based)
-            return msg.channel === 'students' && msg.section === userSection;
+        console.log('🔍 Rendering messages:', {
+            totalMessages: this.messages.length,
+            currentChannel,
+            userSection,
+            userId,
+            isTeacher,
+            messageMode: this.messageMode
         });
 
-        if (filteredMessages.length === 0) {
-            const channelName = currentChannel === 'teachers' ? 'Teachers Only' : `Section ${userSection} Chat`;
-            return `<p style="text-align: center; color: var(--text-secondary);">No messages in ${channelName} yet. Start a conversation!</p>`;
+        // Debug: Show sample message IDs vs current user ID
+        if (this.messages.length > 0) {
+            console.log('📊 Debugging sender_id matching:');
+            console.log('   Current user ID:', userId);
+            this.messages.slice(0, 3).forEach((msg, idx) => {
+                console.log(`   Message ${idx + 1}:`, {
+                    sender_id: msg.sender_id,
+                    matches: msg.sender_id === userId,
+                    sender_name: msg.sender_name
+                });
+            });
         }
 
-        return filteredMessages.map(msg => `
-        <div style="margin-bottom: 1rem; ${msg.sender === this.currentUser.email ? 'text-align: right;' : ''}">
-            <div style="display: inline-block; max-width: 70%; background: ${msg.sender === this.currentUser.email ? 'var(--gradient-primary)' : 'var(--bg-secondary)'}; padding: 1rem; border-radius: var(--border-radius-md);">
-                <div style="font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">
-                    ${msg.senderName} <span style="opacity: 0.7; font-size: 0.8rem;">(${msg.senderRole})</span>
+        let filteredMessages;
+
+        if (this.messageMode === 'private') {
+            // Show private messages where user is sender or recipient
+            filteredMessages = this.messages.filter(msg => {
+                const isRelevant = msg.is_private === true &&
+                    (msg.sender_id === userId || msg.recipient_id === userId);
+                return isRelevant;
+            });
+
+            console.log('🔒 Private messages related to me:', filteredMessages.length);
+
+            // Further filter by selected recipient if one is chosen
+            if (this.selectedRecipient) {
+                console.log('🎯 Filtering by recipient:', this.selectedRecipient);
+
+                filteredMessages = filteredMessages.filter(msg => {
+                    const match1 = (msg.sender_id === userId && msg.recipient_id === this.selectedRecipient);
+                    const match2 = (msg.recipient_id === userId && msg.sender_id === this.selectedRecipient);
+
+                    if (!match1 && !match2 && msg.sender_id === userId) {
+                        // Log why my own message is being hidden
+                        console.log(`❌ Hiding my message. Expected Recipient: ${this.selectedRecipient}, Actual: ${msg.recipient_id}`);
+                    }
+
+                    return match1 || match2;
+                });
+            }
+        } else {
+            // Public messages
+            filteredMessages = this.messages.filter(msg => {
+                // Skip private messages
+                if (msg.is_private) return false;
+
+                // Teacher-to-teacher channel
+                if (currentChannel === 'teachers') {
+                    return msg.channel === 'teachers';
+                }
+
+                // SIMPLIFIED LOGIC:
+                // Teachers see ALL student messages (all sections)
+                // Students see only their section
+                if (currentChannel === 'students') {
+                    if (isTeacher) {
+                        // Teachers see ALL student channel messages
+                        return msg.channel === 'students';
+                    } else {
+                        // Students see only their section
+                        return msg.channel === 'students' && msg.section === userSection;
+                    }
+                }
+
+                return false;
+            });
+        }
+
+        console.log('📊 Filtered messages:', filteredMessages.length);
+        console.log('📋 Raw messages sample:', this.messages.slice(0, 3)); // Show first 3 messages
+        console.log('✅ Messages that passed filter:', filteredMessages.length > 0 ? filteredMessages.slice(0, 2) : 'NONE');
+
+
+        if (filteredMessages.length === 0) {
+            if (this.messageMode === 'private') {
+                if (!this.selectedRecipient) {
+                    // No recipient selected - guide user
+                    const targetRole = isTeacher ? 'student' : 'teacher';
+                    return `
+                        <div style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                            <div style="font-size: 2rem; margin-bottom: 1rem;">🔒</div>
+                            <p style="font-size: 1.1rem; margin-bottom: 1rem;">Private Messaging Mode</p>
+                            <p>Select a ${targetRole} from the dropdown above to start a private conversation.</p>
+                            ${this.availableUsers.length === 0 ? `<p style="color: var(--error); margin-top: 1rem;">⚠️ No ${targetRole}s available in your section.</p>` : ''}
+                        </div>
+                    `;
+                } else {
+                    // Recipient selected but no messages yet
+                    return `<p style="text-align: center; color: var(--text-secondary);">No private messages with this user yet. Start a conversation!</p>`;
+                }
+            } else {
+                const channelName = currentChannel === 'teachers' ? 'Teachers Only' : isTeacher ? 'All Students' : `Section ${userSection} Chat`;
+                return `<p style="text-align: center; color: var(--text-secondary);">No messages in ${channelName} yet. Start a conversation!</p>`;
+            }
+        }
+
+        return filteredMessages.map(msg => {
+            const isSentByMe = msg.sender_id ? (msg.sender_id === userId) : (msg.sender === this.currentUser.email);
+            const senderName = msg.sender_name || msg.senderName || 'Unknown';
+            const senderRole = msg.sender_role || msg.senderRole || '';
+            const timestamp = msg.created_at || msg.timestamp;
+
+            // Debug: Log each message being rendered
+            if (isSentByMe) {
+                console.log('🟢 Rendering MY message:', { senderName, message: msg.message.substring(0, 20) });
+            }
+
+            return `
+            <div style="margin-bottom: 1rem; ${isSentByMe ? 'text-align: right;' : ''}">
+                <div style="display: inline-block; max-width: 70%; background: ${isSentByMe ? 'var(--gradient-primary)' : 'var(--bg-secondary)'}; padding: 1rem; border-radius: var(--border-radius-md);">
+                    <div class="message-sender" style="font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        ${senderName} <span style="opacity: 0.7; font-size: 0.8rem;">(${senderRole})</span>
+                        ${msg.is_private ? ' <span style="opacity:0.7; font-size: 0.75rem;">🔒</span>' : ''}
+                    </div>
+                    <div class="message-content">${this.escapeHtml(msg.message)}</div>
+                    <div class="message-time" style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.7;">${new Date(timestamp).toLocaleTimeString()}</div>
                 </div>
-                <div>${msg.message}</div>
-                <div style="margin-top: 0.5rem; font-size: 0.75rem; opacity: 0.7;">${new Date(msg.timestamp).toLocaleTimeString()}</div>
             </div>
-        </div>
-    `).join('');
+        `;
+        }).join('');
     }
 
     createAIAgentModal() {
@@ -820,19 +975,26 @@ class EdubridgeApp {
                         <div style="background: var(--bg-tertiary); border-radius: var(--border-radius-lg); height: 500px; display: flex; flex-direction: column;">
                             <div id="ai-chat-container" style="flex: 1; overflow-y: auto; padding: 1.5rem;">
                                 <div style="background: var(--gradient-primary); padding: 1rem; border-radius: var(--border-radius-md); margin-bottom: 1rem;">
-                                    <div style="font-weight: 600; margin-bottom: 0.5rem;">AI Assistant</div>
-                                    <div>Hello! I'm your AI learning assistant. I can help you with:</div>
-                                    <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
+                                    <div class="message-sender" style="font-weight: 600; margin-bottom: 0.5rem;">AI Assistant</div>
+                                    <div class="message-content">Hello! I'm your AI learning assistant. I can help you with:</div>
+                                    <ul class="message-content" style="margin-top: 0.5rem; padding-left: 1.5rem;">
                                         <li>Answering questions about your subjects</li>
                                         <li>Explaining difficult concepts</li>
                                         <li>Providing study tips and resources</li>
                                         <li>Helping with homework and assignments</li>
                                     </ul>
-                                    <div style="margin-top: 0.5rem;">How can I help you today?</div>
+                                    <div class="message-content" style="margin-top: 0.5rem;">How can I help you today?</div>
                                 </div>
                             </div>
-                            <form id="ai-chat-form" style="padding: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; gap: 1rem;">
+                            <form id="ai-chat-form" onsubmit="event.preventDefault(); app.sendAIMessage()" style="padding: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; gap: 1rem; align-items: center;">
                                 <input type="text" id="ai-input" placeholder="Ask me anything..." style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-secondary); border: 2px solid transparent; border-radius: var(--border-radius-sm); color: var(--text-primary);" required>
+                                
+                                <button type="button" onclick="app.searchGoogle()" class="btn" style="background: #4285F4; color: white; padding: 0.75rem; border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;" title="Search on Google">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" style="width: 24px; height: 24px;">
+                                        <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .533 5.333.533 12S5.867 24 12.48 24c3.44 0 6.013-1.133 8.053-3.24 2.08-2.08 2.72-5.013 2.72-7.427 0-.733-.053-1.427-.16-2.08h-10.613z"/>
+                                    </svg>
+                                </button>
+
                                 <button type="submit" class="btn btn-primary" style="width: auto; padding: 0.75rem 1.5rem;">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;">
                                         <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
@@ -844,6 +1006,17 @@ class EdubridgeApp {
                 </div>
             </div>
         `;
+    }
+
+    searchGoogle() {
+        const input = document.getElementById('ai-input');
+        const query = input.value.trim();
+        if (query) {
+            window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank');
+        } else {
+            this.showNotification('Enter a question to search on Google', 'info');
+            input.focus();
+        }
     }
 
     setupModalListeners(feature) {
@@ -1017,29 +1190,27 @@ class EdubridgeApp {
         }
     }
 
-    downloadNote(noteId) {
+    async downloadNote(noteId) {
         const note = this.notes.find(n => n.id === noteId);
         if (!note) return;
 
-        // If Google Drive URL exists, show info modal
-        if (note.driveUrl) {
-            this.showNotification(`📎 ${note.title} - Click "Open in Google Drive" to access the file`, 'success');
+        // If note has a file_url from Supabase Storage or Google Drive
+        if (note.file_url && note.file_url !== 'local-file' && !note.file_url.includes('blob:')) {
+            // Open the file in a new tab (works for both Supabase Storage and Google Drive)
+            window.open(note.file_url, '_blank');
+            this.showNotification(`📥 Opening: ${note.title}`, 'success');
             return;
         }
 
-        // Simulate download for local files
-        this.showNotification(`Downloading: ${note.title}`, 'success');
+        // If Google Drive URL exists
+        if (note.driveUrl) {
+            window.open(note.driveUrl, '_blank');
+            this.showNotification(`📎 Opening ${note.title} from Google Drive`, 'success');
+            return;
+        }
 
-        // In a real app, this would trigger actual file download
-        // For demo, we'll create a dummy text file
-        const content = `EDUBRIDGE - Note Download\n\nTitle: ${note.title}\nSubject: ${note.subject}\nDescription: ${note.description}\nUploaded by: ${note.uploadedByName}\n\nThis is a simulated download. In production, this would download the actual file.`;
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${note.title}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // Fallback for local files - show info message
+        this.showNotification(`ℹ️ ${note.title} - File stored locally. Use "Open in Google Drive" if available.`, 'info');
     }
 
     generateAttendanceCode() {
@@ -1178,35 +1349,145 @@ class EdubridgeApp {
         this.showNotification('Attendance downloaded successfully!', 'success');
     }
 
-    sendMessage() {
+    async sendMessage() {
         const input = document.getElementById('message-input');
         const message = input.value.trim();
 
         if (!message) return;
 
+        // Validate recipient for private messages
+        if (this.messageMode === 'private') {
+            const recipientSelect = document.getElementById('recipient-select');
+
+            // Check if dropdown exists and has value
+            if (!recipientSelect) {
+                console.error('❌ Recipient select dropdown not found!');
+                this.showNotification('⚠️ Error: Recipient selector not loaded', 'error');
+                return;
+            }
+
+            if (!recipientSelect.value) {
+                // Check if there are any users available
+                if (this.availableUsers.length === 0) {
+                    const targetRole = this.currentUser.role === 'teacher' ? 'students' : 'teachers';
+                    this.showNotification(`⚠️ No ${targetRole} available in your section to send private messages to.`, 'warning');
+                    console.warn(`No users available. availableUsers: ${this.availableUsers.length}`);
+                } else {
+                    this.showNotification('⚠️ Please select a recipient from the dropdown first', 'warning');
+                }
+                return;
+            }
+
+            this.selectedRecipient = recipientSelect.value;
+            console.log('📬 Sending private message to:', this.selectedRecipient);
+        }
+
         const currentChannel = this.currentChannel || 'students';
         const userSection = this.currentUser.section || 'A';
 
-        const msg = {
-            sender: this.currentUser.email,
-            senderName: this.currentUser.name,
-            senderRole: this.currentUser.role,
-            message,
-            timestamp: Date.now(),
-            channel: currentChannel,  // 'students' or 'teachers'
-            section: userSection      // Section for filtering
-        };
+        // ✅ SAVE TO SUPABASE if available
+        if (supabaseClient) {
+            try {
+                const { data: { user } } = await supabaseClient.auth.getUser();
 
-        this.messages.push(msg);
-        this.saveToStorage('edubridge_messages', this.messages);
+                if (!user) {
+                    this.showNotification('❌ Please login again', 'error');
+                    return;
+                }
 
-        // Update UI
-        document.getElementById('messages-container').innerHTML = this.renderMessages();
-        input.value = '';
+                const messageData = {
+                    sender_id: user.id,
+                    sender_name: this.currentUser.name,
+                    sender_role: this.currentUser.role,
+                    sender_email: this.currentUser.email,
+                    message: message,
+                    channel: currentChannel,
+                    section: userSection,
+                    is_private: this.messageMode === 'private',
+                    recipient_id: this.messageMode === 'private' ? this.selectedRecipient : null
+                };
 
-        // Scroll to bottom
-        const container = document.getElementById('messages-container');
-        container.scrollTop = container.scrollHeight;
+                console.log('📤 Sending message to Supabase:', messageData);
+
+                const { data, error } = await supabaseClient
+                    .from('messages')
+                    .insert([messageData])
+                    .select();
+
+                if (error) {
+                    console.error('Message send error:', error);
+                    this.showNotification('❌ Failed to send message: ' + error.message, 'error');
+                    return;
+                }
+
+                console.log('✅ Message sent successfully:', data);
+
+                let newMessage;
+                if (data && data.length > 0) {
+                    newMessage = data[0];
+                } else {
+                    console.warn('⚠️ No data returned from insert (likely RLS). Using local data.');
+                    newMessage = {
+                        ...messageData,
+                        created_at: new Date().toISOString(),
+                        id: 'temp-' + Date.now() // Temporary ID
+                    };
+                }
+
+                // Add to local messages array
+                this.messages.push(newMessage);
+
+                // Clear input immediately
+                input.value = '';
+
+                // Update UI - Force re-render
+                const messagesContainer = document.getElementById('messages-container');
+                messagesContainer.innerHTML = this.renderMessages();
+
+                // Scroll to bottom after a short delay to ensure DOM is updated
+                setTimeout(() => {
+                    if (messagesContainer) {
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    }
+                }, 100);
+
+                // Show success notification
+                // ✅ SHOW SUCCESS NOTIFICATION
+                this.showNotification('✅ Message Sent Successfully!', 'success');
+                console.log('💬 Message displayed in UI');
+
+            } catch (error) {
+                console.error('Send message error:', error);
+                this.showNotification('❌ Failed to send message', 'error');
+            }
+        } else {
+            // ⚠️ FALLBACK to localStorage
+            const msg = {
+                sender: this.currentUser.email,
+                senderName: this.currentUser.name,
+                senderRole: this.currentUser.role,
+                message,
+                timestamp: Date.now(),
+                channel: currentChannel,
+                section: userSection,
+                is_private: this.messageMode === 'private',
+                recipient_id: this.messageMode === 'private' ? this.selectedRecipient : null
+            };
+
+            this.messages.push(msg);
+            this.saveToStorage('edubridge_messages', this.messages);
+
+            // Update UI
+            document.getElementById('messages-container').innerHTML = this.renderMessages();
+            input.value = '';
+
+            // Scroll to bottom
+            const container = document.getElementById('messages-container');
+            container.scrollTop = container.scrollHeight;
+
+            // ✅ SHOW SUCCESS NOTIFICATION
+            this.showNotification('✅ Message Sent Successfully!', 'success');
+        }
     }
 
     async sendAIMessage() {
@@ -1448,8 +1729,169 @@ class EdubridgeApp {
         return responses[Math.floor(Math.random() * responses.length)];
     }
 
+    // ==========================================
+    // MESSAGE MANAGEMENT FUNCTIONS
+    // ==========================================
+
+    async loadMessagesFromSupabase() {
+        if (!supabaseClient) {
+            console.log('📦 Using localStorage for messages');
+            return;
+        }
+
+        try {
+            console.log('📥 Loading messages from Supabase...');
+
+            const { data, error } = await supabaseClient
+                .from('messages')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                console.error('Error loading messages:', error);
+                return;
+            }
+
+            // Store in this.messages array for rendering
+            this.messages = data || [];
+            console.log(`✅ Loaded ${this.messages.length} messages (filtered by RLS)`);
+
+        } catch (error) {
+            console.error('Error loading messages:', error);
+        }
+    }
+
+    async subscribeToMessages() {
+        if (!supabaseClient) return;
+
+        // Prevent duplicate subscriptions
+        if (this.messageSubscription) {
+            supabaseClient.removeChannel(this.messageSubscription);
+        }
+
+        console.log('📡 Subscribing to messages...');
+        this.messageSubscription = supabaseClient
+            .channel('public:messages')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                console.log('🔔 New message received:', payload);
+                const newMessage = payload.new;
+
+                // Add to local list if not exists
+                if (!this.messages.some(m => m.id === newMessage.id)) {
+                    this.messages.push(newMessage);
+
+                    // RELOAD UI if messages container exists
+                    const container = document.getElementById('messages-container');
+                    if (container) {
+                        container.innerHTML = this.renderMessages();
+                        container.scrollTop = container.scrollHeight;
+                    }
+                }
+            })
+            .subscribe((status) => {
+                console.log('Subscription status:', status);
+            });
+    }
+
+    async loadAvailableUsers() {
+        if (!supabaseClient) {
+            console.warn('⚠️ Supabase not initialized');
+            return;
+        }
+
+        try {
+            const isTeacher = this.currentUser.role === 'teacher';
+            const userSection = this.currentUser.section || 'A';
+            const targetRole = isTeacher ? 'student' : 'teacher';
+
+            console.log(`🔍 Loading available ${targetRole}s for section ${userSection}...`);
+
+            const { data, error } = await supabaseClient
+                .from('users')
+                .select('id, name, email, role, section')
+                .eq('role', targetRole)
+                .eq('section', userSection)
+                .neq('id', this.currentUser.id); // Exclude current user
+
+            if (error) {
+                console.error('❌ Error loading users from users table:', error);
+                console.warn('💡 Make sure the users table exists and is populated');
+                this.availableUsers = [];
+                return;
+            }
+
+            this.availableUsers = data || [];
+            console.log(`✅ Loaded ${this.availableUsers.length} available ${targetRole}s for private messaging`);
+
+            if (this.availableUsers.length === 0) {
+                console.warn(`⚠️ No ${targetRole}s found in section ${userSection}. Users table might be empty.`);
+                console.warn('💡 Students/Teachers need to be registered in the users table for private messaging to work.');
+            } else {
+                console.log('📋 Available users:', this.availableUsers.map(u => `${u.name} (${u.email})`));
+            }
+
+        } catch (error) {
+            console.error('❌ Error loading available users:', error);
+            this.availableUsers = [];
+        }
+    }
+
+    renderRecipientOptions() {
+        if (!this.availableUsers || this.availableUsers.length === 0) {
+            return '<option value="">No users available</option>';
+        }
+
+        return this.availableUsers.map(user =>
+            `<option value="${user.id}">${user.name} (${user.email})</option>`
+        ).join('');
+    }
+
+    switchMessageMode(mode) {
+        this.messageMode = mode;
+
+        // Update button styles
+        const publicBtn = document.getElementById('public-mode-btn');
+        const privateBtn = document.getElementById('private-mode-btn');
+        const recipientSelector = document.getElementById('recipient-selector');
+
+        if (mode === 'public') {
+            if (publicBtn) publicBtn.style.background = 'var(--gradient-primary)';
+            if (privateBtn) privateBtn.style.background = 'var(--bg-secondary)';
+            if (recipientSelector) recipientSelector.style.display = 'none';
+            this.selectedRecipient = null;
+        } else {
+            if (publicBtn) publicBtn.style.background = 'var(--bg-secondary)';
+            if (privateBtn) privateBtn.style.background = 'var(--gradient-primary)';
+            if (recipientSelector) recipientSelector.style.display = 'block';
+        }
+
+        // Refresh messages
+        const messagesContainer = document.getElementById('messages-container');
+        if (messagesContainer) {
+            messagesContainer.innerHTML = this.renderMessages();
+        }
+
+        // Set up recipient change listener
+        const recipientSelect = document.getElementById('recipient-select');
+        if (recipientSelect && mode === 'private') {
+            recipientSelect.addEventListener('change', (e) => {
+                this.selectedRecipient = e.target.value;
+                // Refresh messages when recipient changes
+                const container = document.getElementById('messages-container');
+                if (container) {
+                    container.innerHTML = this.renderMessages();
+                }
+            });
+        }
+    }
+
     closeModal() {
         document.getElementById('modals-container').innerHTML = '';
+        if (this.messageSubscription && supabaseClient) {
+            console.log('Stopping message subscription');
+            supabaseClient.removeChannel(this.messageSubscription);
+            this.messageSubscription = null;
+        }
     }
 
     showNotification(message, type = 'info') {
@@ -1516,4 +1958,5 @@ style.textContent = `
 document.head.appendChild(style);
 
 // Initialize app
-const app = new EdubridgeApp();
+// Initialize app globally
+window.app = new EdubridgeApp();
