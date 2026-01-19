@@ -16,6 +16,13 @@ class EdubridgeApp {
         this.messageMode = 'private'; // Default to PRIVATE mode
         this.availableUsers = []; // List of users for private messaging
 
+        // NEW: Announcements, Calendar & Notifications
+        this.announcements = this.loadFromStorage('edubridge_announcements') || [];
+        this.calendarEvents = this.loadFromStorage('edubridge_calendar') || [];
+        this.notifications = this.loadFromStorage('edubridge_notifications') || [];
+        this.currentCalendarMonth = new Date().getMonth();
+        this.currentCalendarYear = new Date().getFullYear();
+
         this.init();
     }
 
@@ -434,6 +441,11 @@ class EdubridgeApp {
         document.getElementById('dashboard-user-name').textContent = this.currentUser.name;
         document.getElementById('dashboard-role-text').textContent =
             this.currentUser.role === 'teacher' ? 'Teacher Dashboard' : 'Student Dashboard';
+
+        // Initialize notification system
+        this.updateNotificationBadge();
+        this.renderNotificationList();
+        this.checkReminders();
     }
 
     async loadNotesFromSupabase() {
@@ -482,6 +494,14 @@ class EdubridgeApp {
             await this.subscribeToMessages();
         }
 
+        if (feature === 'announcements' && supabaseClient) {
+            await this.loadAnnouncementsFromSupabase();
+        }
+
+        if (feature === 'calendar' && supabaseClient) {
+            await this.loadCalendarEventsFromSupabase();
+        }
+
         switch (feature) {
             case 'notes':
                 modalsContainer.innerHTML = this.createNotesModal();
@@ -494,6 +514,15 @@ class EdubridgeApp {
                 break;
             case 'ai-agent':
                 modalsContainer.innerHTML = this.createAIAgentModal();
+                break;
+            case 'announcements':
+                modalsContainer.innerHTML = this.createAnnouncementsModal();
+                break;
+            case 'calendar':
+                modalsContainer.innerHTML = this.createCalendarModal();
+                break;
+            case 'contact':
+                modalsContainer.innerHTML = this.createContactModal();
                 break;
         }
 
@@ -1056,6 +1085,26 @@ class EdubridgeApp {
                     e.preventDefault();
                     this.sendAIMessage();
                 });
+                break;
+            case 'announcements':
+                if (this.currentUser.role === 'teacher') {
+                    const announcementForm = document.getElementById('announcement-form');
+                    if (announcementForm) {
+                        announcementForm.addEventListener('submit', (e) => {
+                            e.preventDefault();
+                            this.sendAnnouncement();
+                        });
+                    }
+                }
+                break;
+            case 'calendar':
+                const calendarEventForm = document.getElementById('calendar-event-form');
+                if (calendarEventForm) {
+                    calendarEventForm.addEventListener('submit', (e) => {
+                        e.preventDefault();
+                        this.addCalendarEvent();
+                    });
+                }
                 break;
         }
     }
@@ -1927,6 +1976,729 @@ class EdubridgeApp {
     loadFromStorage(key) {
         const data = localStorage.getItem(key);
         return data ? JSON.parse(data) : null;
+    }
+
+    // ==========================================
+    // ANNOUNCEMENTS FEATURE
+    // ==========================================
+
+    async loadAnnouncementsFromSupabase() {
+        if (!supabaseClient) {
+            console.log('📦 Using localStorage for announcements');
+            return;
+        }
+
+        try {
+            console.log('📥 Loading announcements from Supabase...');
+            const { data, error } = await supabaseClient
+                .from('announcements')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error loading announcements:', error);
+                return;
+            }
+
+            this.announcements = data || [];
+            console.log(`✅ Loaded ${this.announcements.length} announcements`);
+        } catch (error) {
+            console.error('Error loading announcements:', error);
+        }
+    }
+
+    createAnnouncementsModal() {
+        const isTeacher = this.currentUser.role === 'teacher';
+
+        return `
+            <div class="modal-overlay">
+                <div class="modal" style="max-width: 800px;">
+                    <div class="modal-header">
+                        <h2>📢 Announcements</h2>
+                        <button class="modal-close" onclick="app.closeModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="modal-content">
+                        ${isTeacher ? `
+                        <form id="announcement-form" style="margin-bottom: 2rem; background: var(--bg-tertiary); padding: 1.5rem; border-radius: var(--border-radius-lg); border: 1px solid rgba(255,255,255,0.1);">
+                            <h3 style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 22px; height: 22px;">
+                                    <path d="M11 5.882V19.24a1.76 1.76 0 0 1-3.417.592l-2.147-6.15M18 13a3 3 0 1 0 0-6M5.436 13.683A4.001 4.001 0 0 1 7 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 0 1-1.564-.317z"/>
+                                </svg>
+                                Create New Announcement
+                            </h3>
+                            <div class="form-group">
+                                <label for="announcement-title">Title *</label>
+                                <input type="text" id="announcement-title" required placeholder="e.g., Exam Schedule Update">
+                            </div>
+                            <div class="form-group">
+                                <label for="announcement-message">Message *</label>
+                                <textarea id="announcement-message" rows="4" required style="width: 100%; padding: 1rem; background: var(--bg-secondary); border: 2px solid transparent; border-radius: var(--border-radius-sm); color: var(--text-primary); font-family: var(--font-primary); resize: vertical;" placeholder="Write your announcement here..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="announcement-priority">Priority</label>
+                                <select id="announcement-priority" style="width: 100%; padding: 1rem; background: var(--bg-secondary); border: 2px solid transparent; border-radius: var(--border-radius-sm); color: var(--text-primary);">
+                                    <option value="normal">Normal</option>
+                                    <option value="important">Important</option>
+                                    <option value="urgent">Urgent</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <span>Send Announcement</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                                </svg>
+                            </button>
+                        </form>
+                        ` : `
+                        <div style="background: var(--bg-secondary); padding: 1rem; border-radius: var(--border-radius-md); margin-bottom: 1.5rem; text-align: center;">
+                            <p style="color: var(--text-secondary);">📖 Only teachers can post announcements. Students can view all announcements.</p>
+                        </div>
+                        `}
+                        
+                        <h3 style="margin-bottom: 1rem;">Recent Announcements</h3>
+                        <div id="announcements-list" style="max-height: 400px; overflow-y: auto;">
+                            ${this.renderAnnouncementsList()}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderAnnouncementsList() {
+        if (this.announcements.length === 0) {
+            return '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">No announcements yet.</p>';
+        }
+
+        return this.announcements.map(ann => {
+            const priorityColors = {
+                normal: '#6C5CE7',
+                important: '#FDCB6E',
+                urgent: '#E74C3C'
+            };
+            const priorityColor = priorityColors[ann.priority] || priorityColors.normal;
+            const date = new Date(ann.created_at).toLocaleDateString('en-US', {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            });
+
+            return `
+                <div style="background: var(--bg-tertiary); padding: 1.5rem; border-radius: var(--border-radius-md); margin-bottom: 1rem; border-left: 4px solid ${priorityColor};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                        <h4 style="font-size: 1.1rem;">${this.escapeHtml(ann.title)}</h4>
+                        <span style="background: ${priorityColor}; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; text-transform: uppercase;">${ann.priority || 'normal'}</span>
+                    </div>
+                    <p style="color: var(--text-secondary); margin-bottom: 0.75rem; white-space: pre-wrap;">${this.escapeHtml(ann.message)}</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; color: var(--text-tertiary); font-size: 0.85rem;">
+                        <span>👤 ${ann.sender_name || 'Teacher'}</span>
+                        <span>📅 ${date}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async sendAnnouncement() {
+        const title = document.getElementById('announcement-title').value;
+        const message = document.getElementById('announcement-message').value;
+        const priority = document.getElementById('announcement-priority').value;
+
+        if (!title || !message) {
+            this.showNotification('Please fill in all required fields', 'error');
+            return;
+        }
+
+        const announcement = {
+            id: Date.now().toString(),
+            title,
+            message,
+            priority,
+            sender_id: this.currentUser.id,
+            sender_name: this.currentUser.name,
+            section: this.currentUser.section,
+            created_at: new Date().toISOString()
+        };
+
+        if (supabaseClient) {
+            try {
+                const { error } = await supabaseClient
+                    .from('announcements')
+                    .insert([announcement]);
+
+                if (error) {
+                    console.error('Error saving announcement:', error);
+                    this.showNotification('Failed to send announcement', 'error');
+                    return;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        this.announcements.unshift(announcement);
+        this.saveToStorage('edubridge_announcements', this.announcements);
+
+        // Add notification for all users
+        this.addNotificationItem('announcement', `📢 New Announcement: ${title}`, announcement.id);
+
+        document.getElementById('announcement-form').reset();
+        document.getElementById('announcements-list').innerHTML = this.renderAnnouncementsList();
+        this.showNotification('Announcement sent successfully!', 'success');
+    }
+
+    // ==========================================
+    // CALENDAR FEATURE
+    // ==========================================
+
+    async loadCalendarEventsFromSupabase() {
+        if (!supabaseClient) {
+            console.log('📦 Using localStorage for calendar');
+            return;
+        }
+
+        try {
+            console.log('📥 Loading calendar events from Supabase...');
+            const { data, error } = await supabaseClient
+                .from('calendar_events')
+                .select('*')
+                .order('event_date', { ascending: true });
+
+            if (error) {
+                console.error('Error loading calendar events:', error);
+                return;
+            }
+
+            this.calendarEvents = data || [];
+            console.log(`✅ Loaded ${this.calendarEvents.length} calendar events`);
+        } catch (error) {
+            console.error('Error loading calendar events:', error);
+        }
+    }
+
+    createCalendarModal() {
+        return `
+            <div class="modal-overlay">
+                <div class="modal" style="max-width: 900px;">
+                    <div class="modal-header">
+                        <h2>📅 Calendar</h2>
+                        <button class="modal-close" onclick="app.closeModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="modal-content">
+                        <div style="display: grid; grid-template-columns: 1fr 300px; gap: 1.5rem;">
+                            <!-- Calendar Grid -->
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                    <button class="btn" onclick="app.changeMonth(-1)" style="background: var(--bg-secondary); padding: 0.5rem 1rem;">
+                                        ← Prev
+                                    </button>
+                                    <h3 id="calendar-month-year" style="font-size: 1.25rem;"></h3>
+                                    <button class="btn" onclick="app.changeMonth(1)" style="background: var(--bg-secondary); padding: 0.5rem 1rem;">
+                                        Next →
+                                    </button>
+                                </div>
+                                <div id="calendar-grid" style="background: var(--bg-tertiary); border-radius: var(--border-radius-lg); padding: 1rem; overflow: hidden;">
+                                    ${this.renderCalendarGrid()}
+                                </div>
+                            </div>
+                            
+                            <!-- Event Form & List -->
+                            <div>
+                                <form id="calendar-event-form" style="background: var(--bg-tertiary); padding: 1rem; border-radius: var(--border-radius-lg); margin-bottom: 1rem;">
+                                    <h4 style="margin-bottom: 1rem;">Add Event</h4>
+                                    <div class="form-group" style="margin-bottom: 0.75rem;">
+                                        <label for="event-title" style="font-size: 0.9rem;">Title *</label>
+                                        <input type="text" id="event-title" required placeholder="Event title" style="padding: 0.75rem;">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0.75rem;">
+                                        <label for="event-date" style="font-size: 0.9rem;">Date *</label>
+                                        <input type="date" id="event-date" required style="padding: 0.75rem;">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0.75rem;">
+                                        <label for="event-type" style="font-size: 0.9rem;">Type</label>
+                                        <select id="event-type" style="padding: 0.75rem;">
+                                            <option value="exam">📝 Exam</option>
+                                            <option value="assignment">📋 Assignment</option>
+                                            <option value="holiday">🎉 Holiday</option>
+                                            <option value="meeting">👥 Meeting</option>
+                                            <option value="personal">🔒 Personal</option>
+                                        </select>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" style="width: 100%; padding: 0.75rem;">
+                                        Add Event
+                                    </button>
+                                </form>
+                                
+                                <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: var(--border-radius-lg);">
+                                    <h4 style="margin-bottom: 1rem;">Events This Month</h4>
+                                    <div id="events-list" style="max-height: 250px; overflow-y: auto;">
+                                        ${this.renderEventsList()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderCalendarGrid() {
+        const year = this.currentCalendarYear;
+        const month = this.currentCalendarMonth;
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startingDay = firstDay.getDay();
+        const today = new Date();
+
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        // Update header
+        setTimeout(() => {
+            const header = document.getElementById('calendar-month-year');
+            if (header) header.textContent = `${monthNames[month]} ${year}`;
+        }, 0);
+
+        let html = '<div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;">';
+
+        // Day headers
+        dayNames.forEach(day => {
+            html += `<div style="padding: 0.5rem; text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 0.8rem;">${day}</div>`;
+        });
+
+        // Empty cells before first day
+        for (let i = 0; i < startingDay; i++) {
+            html += '<div style="padding: 0.75rem;"></div>';
+        }
+
+        // Days of month
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+            const eventsOnDay = this.getEventsForDate(dateStr);
+            const hasTeacherEvent = eventsOnDay.some(e => e.is_public);
+            const hasStudentEvent = eventsOnDay.some(e => !e.is_public);
+
+            html += `
+                <div onclick="app.showDayEvents('${dateStr}')" style="
+                    padding: 0.5rem;
+                    text-align: center;
+                    cursor: pointer;
+                    border-radius: var(--border-radius-sm);
+                    background: ${isToday ? 'var(--gradient-primary)' : 'var(--bg-secondary)'};
+                    color: ${isToday ? 'white' : 'var(--text-primary)'};
+                    position: relative;
+                    transition: all 0.2s;
+                " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                    ${day}
+                    ${hasTeacherEvent ? '<span style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:6px;height:6px;background:#00B894;border-radius:50%;"></span>' : ''}
+                    ${hasStudentEvent ? '<span style="position:absolute;bottom:2px;right:4px;width:4px;height:4px;background:#6C5CE7;border-radius:50%;"></span>' : ''}
+                </div>
+            `;
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    getEventsForDate(dateStr) {
+        const userId = this.currentUser?.id;
+        return this.calendarEvents.filter(event => {
+            // Check if date matches
+            if (event.event_date !== dateStr) return false;
+
+            // Public events (teacher-created) are visible to everyone
+            if (event.is_public) return true;
+
+            // Private events (student-created) are only visible to the creator
+            return event.user_id === userId;
+        });
+    }
+
+    renderEventsList() {
+        const year = this.currentCalendarYear;
+        const month = this.currentCalendarMonth;
+        const userId = this.currentUser?.id;
+
+        const monthEvents = this.calendarEvents.filter(event => {
+            const eventDate = new Date(event.event_date);
+            const dateMatches = eventDate.getMonth() === month && eventDate.getFullYear() === year;
+
+            if (!dateMatches) return false;
+
+            // Show public events OR private events created by current user
+            return event.is_public || event.user_id === userId;
+        });
+
+        if (monthEvents.length === 0) {
+            return '<p style="text-align: center; color: var(--text-secondary); padding: 1rem; font-size: 0.9rem;">No events this month</p>';
+        }
+
+        const typeEmojis = {
+            exam: '📝',
+            assignment: '📋',
+            holiday: '🎉',
+            meeting: '👥',
+            personal: '🔒'
+        };
+
+        return monthEvents.map(event => `
+            <div style="background: var(--bg-secondary); padding: 0.75rem; border-radius: var(--border-radius-sm); margin-bottom: 0.5rem; border-left: 3px solid ${event.is_public ? '#00B894' : '#6C5CE7'};">
+                <div style="font-weight: 600; font-size: 0.9rem;">${typeEmojis[event.event_type] || '📌'} ${this.escapeHtml(event.title)}</div>
+                <div style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.25rem;">
+                    ${new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    ${event.is_public ? '<span style="color: #00B894;"> • Public</span>' : '<span style="color: #6C5CE7;"> • Private</span>'}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    changeMonth(delta) {
+        this.currentCalendarMonth += delta;
+        if (this.currentCalendarMonth > 11) {
+            this.currentCalendarMonth = 0;
+            this.currentCalendarYear++;
+        } else if (this.currentCalendarMonth < 0) {
+            this.currentCalendarMonth = 11;
+            this.currentCalendarYear--;
+        }
+        document.getElementById('calendar-grid').innerHTML = this.renderCalendarGrid();
+        document.getElementById('events-list').innerHTML = this.renderEventsList();
+    }
+
+    showDayEvents(dateStr) {
+        const events = this.getEventsForDate(dateStr);
+        if (events.length === 0) {
+            this.showNotification(`No events on ${dateStr}`, 'info');
+        } else {
+            const titles = events.map(e => e.title).join(', ');
+            this.showNotification(`Events: ${titles}`, 'info');
+        }
+    }
+
+    async addCalendarEvent() {
+        const title = document.getElementById('event-title').value;
+        const eventDate = document.getElementById('event-date').value;
+        const eventType = document.getElementById('event-type').value;
+
+        if (!title || !eventDate) {
+            this.showNotification('Please fill in all required fields', 'error');
+            return;
+        }
+
+        const isTeacher = this.currentUser.role === 'teacher';
+
+        // If teacher AND not personal event, make it public
+        const isPublic = isTeacher && eventType !== 'personal';
+
+        const event = {
+            id: Date.now().toString(),
+            title,
+            event_date: eventDate,
+            event_type: eventType,
+            is_public: isPublic,
+            user_id: this.currentUser.id,
+            user_name: this.currentUser.name,
+            section: this.currentUser.section,
+            created_at: new Date().toISOString()
+        };
+
+        if (supabaseClient) {
+            try {
+                const { error } = await supabaseClient
+                    .from('calendar_events')
+                    .insert([event]);
+
+                if (error) {
+                    console.error('Error saving calendar event:', error);
+                    this.showNotification('Failed to add event', 'error');
+                    return;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        this.calendarEvents.push(event);
+        this.saveToStorage('edubridge_calendar', this.calendarEvents);
+
+        // Add notification and reminder
+        if (isPublic) {
+            this.addNotificationItem('calendar', `📅 New Event: ${title} on ${eventDate}`, event.id);
+        }
+        this.scheduleReminder(event);
+
+        document.getElementById('calendar-event-form').reset();
+        document.getElementById('calendar-grid').innerHTML = this.renderCalendarGrid();
+        document.getElementById('events-list').innerHTML = this.renderEventsList();
+        this.showNotification('Event added successfully!', 'success');
+    }
+
+    scheduleReminder(event) {
+        const eventDate = new Date(event.event_date);
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+
+        // If event is today, show reminder immediately
+        if (eventDay.getTime() === today.getTime()) {
+            this.showReminderToast(event);
+        }
+
+        // Store reminder in localStorage for checking on app load
+        const reminders = this.loadFromStorage('edubridge_reminders') || [];
+        reminders.push({
+            eventId: event.id,
+            title: event.title,
+            date: event.event_date,
+            shown: false
+        });
+        this.saveToStorage('edubridge_reminders', reminders);
+    }
+
+    checkReminders() {
+        const reminders = this.loadFromStorage('edubridge_reminders') || [];
+        const today = new Date().toISOString().split('T')[0];
+
+        reminders.forEach((reminder, index) => {
+            if (reminder.date === today && !reminder.shown) {
+                setTimeout(() => {
+                    this.showReminderToast({ title: reminder.title, event_date: reminder.date });
+                    reminders[index].shown = true;
+                    this.saveToStorage('edubridge_reminders', reminders);
+                }, 2000 + (index * 3000));
+            }
+        });
+    }
+
+    showReminderToast(event) {
+        const toast = document.createElement('div');
+        toast.className = 'reminder-toast';
+        toast.innerHTML = `
+            <div class="reminder-toast-header">
+                <h4>⏰ Event Today!</h4>
+                <button class="reminder-toast-close" onclick="this.parentElement.parentElement.remove()">✕</button>
+            </div>
+            <div class="reminder-toast-content">
+                <strong>${this.escapeHtml(event.title)}</strong><br>
+                Scheduled for today (${event.event_date})
+            </div>
+        `;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast.parentElement) toast.remove();
+        }, 10000);
+    }
+
+    // ==========================================
+    // CONTACT FEATURE
+    // ==========================================
+
+    createContactModal() {
+        return `
+            <div class="modal-overlay">
+                <div class="modal" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h2>📞 Contact Us</h2>
+                        <button class="modal-close" onclick="app.closeModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="modal-content">
+                        <!-- Contact Info -->
+                        <div style="background: var(--bg-tertiary); padding: 2rem; border-radius: var(--border-radius-lg); margin-bottom: 1.5rem;">
+                            <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">📬 Get In Touch</h3>
+                            
+                            <div class="contact-item" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-md);">
+                                <div class="contact-item-icon" style="width: 45px; height: 45px; background: var(--gradient-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width: 22px; height: 22px;">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                                        <polyline points="22,6 12,13 2,6"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 0.25rem;">Email Us</h4>
+                                    <a href="mailto:suhaschandrakala47@gmail.com" style="color: var(--primary); text-decoration: none;">suhaschandrakala47@gmail.com</a><br>
+                                    <a href="mailto:oneforalldeku39@gmail.com" style="color: var(--primary); text-decoration: none;">oneforalldeku39@gmail.com</a>
+                                </div>
+                            </div>
+                            
+                            <div class="contact-item" style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-md);">
+                                <div class="contact-item-icon" style="width: 45px; height: 45px; background: linear-gradient(135deg, #00B894 0%, #00CEC9 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width: 22px; height: 22px;">
+                                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                                        <circle cx="12" cy="10" r="3"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 style="font-weight: 600; margin-bottom: 0.25rem;">Connect With Us</h4>
+                                    <p style="color: var(--text-secondary);">We're here to help with your educational needs!</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Pricing Section -->
+                        <div class="pricing-card" style="background: var(--bg-tertiary); padding: 2rem; border-radius: var(--border-radius-lg); position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: var(--gradient-primary);"></div>
+                            <h3 style="margin-bottom: 1.5rem; font-size: 1.25rem;">💼 Our Services</h3>
+                            
+                            <div class="pricing-item" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem; background: var(--bg-secondary); border-radius: var(--border-radius-md); margin-bottom: 1rem; border: 2px solid transparent; transition: all 0.3s;" onmouseover="this.style.borderColor='var(--primary)';this.style.transform='translateX(5px)'" onmouseout="this.style.borderColor='transparent';this.style.transform='translateX(0)'">
+                                <div>
+                                    <span style="font-weight: 600; font-size: 1.1rem;">🌐 Website Development</span>
+                                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Custom website design & development</p>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span class="pricing-item-price" style="font-size: 1.75rem; font-weight: 700; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">₹200</span>
+                                </div>
+                            </div>
+                            
+                            <div class="pricing-item" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem; background: var(--bg-secondary); border-radius: var(--border-radius-md); border: 2px solid transparent; transition: all 0.3s;" onmouseover="this.style.borderColor='var(--primary)';this.style.transform='translateX(5px)'" onmouseout="this.style.borderColor='transparent';this.style.transform='translateX(0)'">
+                                <div>
+                                    <span style="font-weight: 600; font-size: 1.1rem;">📱 App Development</span>
+                                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Mobile application development</p>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span class="pricing-item-price" style="font-size: 1.75rem; font-weight: 700; background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">₹300</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Footer Note -->
+                        <div style="text-align: center; margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: var(--border-radius-md);">
+                            <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                                💡 Contact us via email for custom quotes and project discussions!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ==========================================
+    // NOTIFICATION SYSTEM
+    // ==========================================
+
+    toggleNotificationPanel() {
+        const panel = document.getElementById('notification-panel');
+        if (panel) {
+            panel.classList.toggle('active');
+            this.updateNotificationBadge();
+        }
+    }
+
+    addNotificationItem(type, message, refId = null) {
+        const notification = {
+            id: Date.now().toString(),
+            type,
+            message,
+            refId,
+            read: false,
+            created_at: new Date().toISOString()
+        };
+
+        this.notifications.unshift(notification);
+        this.saveToStorage('edubridge_notifications', this.notifications);
+        this.updateNotificationBadge();
+        this.renderNotificationList();
+    }
+
+    updateNotificationBadge() {
+        const badge = document.getElementById('notification-badge');
+        const unreadCount = this.notifications.filter(n => !n.read).length;
+
+        if (badge) {
+            badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+        }
+    }
+
+    renderNotificationList() {
+        const listElement = document.getElementById('notification-list');
+        if (!listElement) return;
+
+        if (this.notifications.length === 0) {
+            listElement.innerHTML = '<p class="no-notifications">No new notifications</p>';
+            return;
+        }
+
+        const typeIcons = {
+            notes: '📚',
+            communication: '💬',
+            announcement: '📢',
+            calendar: '📅',
+            attendance: '✅'
+        };
+
+        listElement.innerHTML = this.notifications.slice(0, 20).map(notif => {
+            const icon = typeIcons[notif.type] || '🔔';
+            const timeAgo = this.getTimeAgo(notif.created_at);
+
+            return `
+                <div class="notification-item ${notif.read ? 'read' : 'unread'}" onclick="app.markNotificationRead('${notif.id}')" style="
+                    padding: 0.75rem;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                    cursor: pointer;
+                    background: ${notif.read ? 'transparent' : 'rgba(99, 102, 241, 0.1)'};
+                    transition: background 0.2s;
+                " onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='${notif.read ? 'transparent' : 'rgba(99, 102, 241, 0.1)'}'"
+                >
+                    <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                        <span style="font-size: 1.25rem;">${icon}</span>
+                        <div style="flex: 1;">
+                            <p style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.25rem;">${this.escapeHtml(notif.message)}</p>
+                            <span style="font-size: 0.75rem; color: var(--text-tertiary);">${timeAgo}</span>
+                        </div>
+                        ${!notif.read ? '<span style="width: 8px; height: 8px; background: var(--primary); border-radius: 50%;"></span>' : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    markNotificationRead(notifId) {
+        const notif = this.notifications.find(n => n.id === notifId);
+        if (notif) {
+            notif.read = true;
+            this.saveToStorage('edubridge_notifications', this.notifications);
+            this.updateNotificationBadge();
+            this.renderNotificationList();
+        }
+    }
+
+    clearNotifications() {
+        this.notifications = [];
+        this.saveToStorage('edubridge_notifications', []);
+        this.updateNotificationBadge();
+        this.renderNotificationList();
+        this.showNotification('All notifications cleared', 'success');
+    }
+
+    getTimeAgo(dateString) {
+        const date = new Date(dateString);
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+
+        if (seconds < 60) return 'Just now';
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        if (days < 7) return `${days}d ago`;
+        return date.toLocaleDateString();
     }
 }
 
